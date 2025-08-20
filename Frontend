@@ -1,0 +1,145 @@
+import streamlit as st
+import pandas as pd
+from datetime import date
+from decimal import Decimal
+
+# Import functions from backend_analytics.py
+from backend import (
+    create_transaction,
+    read_transactions,
+    get_total_transactions_count,
+    get_total_revenue,
+    get_total_expense,
+    get_net_income,
+    get_min_max_avg_transaction_amount
+)
+
+st.set_page_config(layout="wide", page_title="Revenue & Expense Tracker")
+
+st.title("💰 Revenue & Expense Tracker")
+st.markdown("---")
+
+# --- ADD NEW TRANSACTION SECTION (CREATE) ---
+st.header("➕ Add New Transaction")
+with st.form("transaction_form", clear_on_submit=True):
+    col1, col2 = st.columns(2)
+    with col1:
+        transaction_date = st.date_input("Date", value=date.today())
+        transaction_type = st.selectbox("Type", ["Revenue", "Expense"])
+    with col2:
+        amount = st.number_input("Amount", min_value=0.01, format="%.2f")
+        description = st.text_area("Description (Optional)", height=50)
+
+    submitted = st.form_submit_button("Add Transaction")
+    if submitted:
+        if amount <= 0:
+            st.error("Amount must be a positive number.")
+        else:
+            if create_transaction(transaction_date, description, Decimal(str(amount)), transaction_type):
+                st.success("Transaction added successfully! 🎉")
+            else:
+                st.error("Failed to add transaction. Please check database connection.")
+
+st.markdown("---")
+
+# --- BUSINESS INSIGHTS SECTION ---
+st.header("📊 Business Insights")
+
+# Aggregation Metrics
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    total_transactions = get_total_transactions_count()
+    st.metric(label="Total Transactions", value=total_transactions)
+
+with col2:
+    total_revenue = get_total_revenue()
+    st.metric(label="Total Revenue", value=f"${total_revenue:,.2f}")
+
+with col3:
+    total_expense = get_total_expense()
+    st.metric(label="Total Expenses", value=f"${total_expense:,.2f}")
+
+with col4:
+    net_income = get_net_income()
+    st.metric(label="Net Income", value=f"${net_income:,.2f}", delta="Profit" if net_income >= 0 else "Loss")
+
+st.write("---")
+st.subheader("Advanced Aggregations")
+
+col_minmaxavg1, col_minmaxavg2, col_minmaxavg3 = st.columns(3)
+
+# Min/Max/Avg for Revenue
+revenue_stats = get_min_max_avg_transaction_amount('Revenue')
+with col_minmaxavg1:
+    st.metric(label="Min Revenue Transaction", value=f"${revenue_stats['min']:,.2f}")
+    st.metric(label="Max Revenue Transaction", value=f"${revenue_stats['max']:,.2f}")
+    st.metric(label="Avg Revenue Transaction", value=f"${revenue_stats['avg']:,.2f}")
+
+# Min/Max/Avg for Expense
+expense_stats = get_min_max_avg_transaction_amount('Expense')
+with col_minmaxavg2:
+    st.metric(label="Min Expense Transaction", value=f"${expense_stats['min']:,.2f}")
+    st.metric(label="Max Expense Transaction", value=f"${expense_stats['max']:,.2f}")
+    st.metric(label="Avg Expense Transaction", value=f"${expense_stats['avg']:,.2f}")
+
+# Min/Max/Avg for All Transactions
+all_stats = get_min_max_avg_transaction_amount()
+with col_minmaxavg3:
+    st.metric(label="Min All Transactions", value=f"${all_stats['min']:,.2f}")
+    st.metric(label="Max All Transactions", value=f"${all_stats['max']:,.2f}")
+    st.metric(label="Avg All Transactions", value=f"${all_stats['avg']:,.2f}")
+
+st.markdown("---")
+
+# --- VIEW & FILTER TRANSACTIONS SECTION (READ & FILTERING) ---
+st.header("🔍 View & Filter Transactions")
+
+# Filtering and Sorting options
+col_filter, col_sort = st.columns(2)
+with col_filter:
+    filter_type = st.selectbox(
+        "Filter by Type",
+        ["All", "Revenue", "Expense"]
+    )
+
+with col_sort:
+    sort_option = st.selectbox(
+        "Sort By",
+        [
+            "Date (Newest First)",
+            "Date (Oldest First)",
+            "Amount (High to Low)",
+            "Amount (Low to High)"
+        ]
+    )
+
+# Map sort option to backend function parameter
+sort_mapping = {
+    "Date (Newest First)": "date_desc",
+    "Date (Oldest First)": "date_asc",
+    "Amount (High to Low)": "amount_desc",
+    "Amount (Low to High)": "amount_asc"
+}
+selected_sort_by = sort_mapping[sort_option]
+
+# Read transactions based on filter and sort
+if filter_type == "All":
+    transactions_data = read_transactions(sort_by=selected_sort_by)
+else:
+    transactions_data = read_transactions(transaction_type=filter_type, sort_by=selected_sort_by)
+
+if transactions_data:
+    # Convert list of tuples to DataFrame for better display
+    df = pd.DataFrame(
+        transactions_data,
+        columns=["Transaction ID", "Date", "Description", "Amount", "Type"]
+    )
+    # Format amount column
+    df["Amount"] = df["Amount"].apply(lambda x: f"${x:,.2f}")
+    st.dataframe(df, use_container_width=True)
+else:
+    st.info("No transactions found matching the criteria.")
+
+st.markdown("---")
+st.caption("Developed by My DBMS Programming Assistant")
