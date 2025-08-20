@@ -1,0 +1,181 @@
+import psycopg2
+from psycopg2 import sql
+from decimal import Decimal
+import uuid
+from datetime import date
+
+# Database connection parameters
+DB_PARAMS = {
+    "host": "localhost",
+    "database": "your_database_name", # Replace with your database name
+    "user": "your_username",         # Replace with your PostgreSQL username
+    "password": "your_password"      # Replace with your PostgreSQL password
+}
+
+def get_db_connection():
+    """Establishes and returns a database connection."""
+    conn = psycopg2.connect(**DB_PARAMS)
+    return conn
+
+def create_transaction(transaction_date: date, description: str, amount: Decimal, type: str) -> bool:
+    """Inserts a new transaction into the database."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        transaction_id = str(uuid.uuid4()) # Generate a unique ID
+        cur.execute(
+            """
+            INSERT INTO transactions (transaction_id, transaction_date, description, amount, type)
+            VALUES (%s, %s, %s, %s, %s);
+            """,
+            (transaction_id, transaction_date, description, amount, type)
+        )
+        conn.commit()
+        cur.close()
+        return True
+    except Exception as e:
+        print(f"Error creating transaction: {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def read_transactions(transaction_type: str = None, sort_by: str = None) -> list:
+    """
+    Fetches transactions from the database, with optional filtering and sorting.
+    transaction_type: 'Revenue', 'Expense', or None for all.
+    sort_by: 'amount_asc', 'amount_desc', 'date_asc', 'date_desc', or None.
+    """
+    conn = None
+    transactions = []
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        query = sql.SQL("SELECT transaction_id, transaction_date, description, amount, type FROM transactions")
+        conditions = []
+        params = []
+
+        if transaction_type in ['Revenue', 'Expense']:
+            conditions.append(sql.SQL("type = %s"))
+            params.append(transaction_type)
+
+        if conditions:
+            query += sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conditions)
+
+        order_by_clause = sql.SQL("")
+        if sort_by == 'amount_asc':
+            order_by_clause = sql.SQL(" ORDER BY amount ASC")
+        elif sort_by == 'amount_desc':
+            order_by_clause = sql.SQL(" ORDER BY amount DESC")
+        elif sort_by == 'date_asc':
+            order_by_clause = sql.SQL(" ORDER BY transaction_date ASC")
+        elif sort_by == 'date_desc':
+            order_by_clause = sql.SQL(" ORDER BY transaction_date DESC")
+        else:
+             order_by_clause = sql.SQL(" ORDER BY transaction_date DESC") # Default sort
+
+        query += order_by_clause
+
+        cur.execute(query, params)
+        transactions = cur.fetchall()
+        cur.close()
+    except Exception as e:
+        print(f"Error reading transactions: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return transactions
+
+# --- Business Insights Functions ---
+
+def get_total_transactions_count() -> int:
+    """Returns the total number of transactions."""
+    conn = None
+    count = 0
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM transactions;")
+        count = cur.fetchone()[0]
+        cur.close()
+    except Exception as e:
+        print(f"Error getting total transactions count: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return count
+
+def get_total_revenue() -> Decimal:
+    """Returns the total sum of all 'Revenue' transactions."""
+    conn = None
+    total_revenue = Decimal(0)
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'Revenue';")
+        total_revenue = cur.fetchone()[0]
+        cur.close()
+    except Exception as e:
+        print(f"Error getting total revenue: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return total_revenue
+
+def get_total_expense() -> Decimal:
+    """Returns the total sum of all 'Expense' transactions."""
+    conn = None
+    total_expense = Decimal(0)
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type = 'Expense';")
+        total_expense = cur.fetchone()[0]
+        cur.close()
+    except Exception as e:
+        print(f"Error getting total expense: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return total_expense
+
+def get_net_income() -> Decimal:
+    """Calculates and returns the Net Income (Total Revenue - Total Expense)."""
+    total_revenue = get_total_revenue()
+    total_expense = get_total_expense()
+    return total_revenue - total_expense
+
+def get_min_max_avg_transaction_amount(transaction_type: str = None) -> dict:
+    """
+    Returns min, max, and average transaction amount for a given type or all.
+    transaction_type: 'Revenue', 'Expense', or None for all.
+    """
+    conn = None
+    results = {"min": Decimal(0), "max": Decimal(0), "avg": Decimal(0)} # Initialize with Decimal(0)
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        query = "SELECT MIN(amount), MAX(amount), AVG(amount) FROM transactions"
+        params = []
+        if transaction_type in ['Revenue', 'Expense']:
+            query += " WHERE type = %s"
+            params.append(transaction_type)
+        cur.execute(query, params)
+        min_val, max_val, avg_val = cur.fetchone()
+        
+        # Use COALESCE to replace None with Decimal(0) for formatting
+        results["min"] = Decimal(min_val) if min_val is not None else Decimal(0)
+        results["max"] = Decimal(max_val) if max_val is not None else Decimal(0)
+        results["avg"] = Decimal(avg_val) if avg_val is not None else Decimal(0) 
+        
+        cur.close()
+    except Exception as e:
+        print(f"Error getting min/max/avg transaction amount: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return results
